@@ -208,9 +208,11 @@ $stampRows = $stampSummaryStmt->fetchAll();
             <div class="h5 fw-bold mb-1">Teacher Stamp Log</div>
             <div class="text-muted small">Daily office stamp-in and stamp-out summary from the no-login teacher stamp page.</div>
           </div>
-          <a class="btn btn-soft btn-sm" href="<?= BASE_URL ?>/timestap.php" target="_blank" rel="noopener">
-            <i class="bi bi-box-arrow-up-right me-1"></i>Open Stamp Page
-          </a>
+          <?php if ($role !== 'teacher'): ?>
+            <a class="btn btn-soft btn-sm" href="<?= BASE_URL ?>/timestap.php" target="_blank" rel="noopener">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open Stamp Page
+            </a>
+          <?php endif; ?>
         </div>
 
         <div class="table-responsive mt-3">
