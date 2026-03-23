@@ -2,6 +2,8 @@
 $u = current_user();
 $role = $u['role'];
 
+require_once __DIR__ . '/../timetable_helpers.php';
+
 if ($role === 'admin') {
   $subjects = db()->query("SELECT id, code, name FROM subjects WHERE is_active=1 ORDER BY code")->fetchAll();
   $teachers = db()->query("SELECT id, full_name FROM users WHERE role='teacher' AND is_active=1 ORDER BY full_name")->fetchAll();
@@ -35,11 +37,11 @@ foreach ($classes as $c) {
   if ((int)$c['id'] === $classId) { $className = (string)$c['name']; break; }
 }
 
-$settings = db()->query("SELECT * FROM school_settings WHERE id=1")->fetch() ?: ['school_name'=>APP_NAME,'logo_path'=>null];
+$settings = timetable_school_settings();
 $logo = $settings['logo_path'] ? (BASE_URL . '/' . ltrim((string)$settings['logo_path'], '/')) : (BASE_URL . '/assets/img/logo.svg');
 
-$days = [1=>'Monday',2=>'Tuesday',3=>'Wednesday',4=>'Thursday',5=>'Friday'];
-$periods = db()->query("SELECT * FROM periods ORDER BY sort_order")->fetchAll();
+$days = timetable_days();
+$periods = timetable_periods();
 
 db()->exec("CREATE TABLE IF NOT EXISTS timetable_signature_settings (
   id INT PRIMARY KEY DEFAULT 1,
@@ -58,21 +60,7 @@ $signatureSlots = (int)(db()->query("SELECT signature_slots FROM timetable_signa
 $signatureSlots = max(1, min(10, $signatureSlots));
 $signatories = db()->query("SELECT name, title FROM timetable_signatories WHERE is_active=1 ORDER BY sort_order, id")->fetchAll();
 
-$entries = [];
-if ($classId) {
-  $stmt = db()->prepare("
-    SELECT te.*, s.code subject_code, s.name subject_name, u.full_name teacher_name, p.label period_label
-    FROM timetable_entries te
-    JOIN subjects s ON s.id=te.subject_id
-    JOIN users u ON u.id=te.teacher_user_id
-    JOIN periods p ON p.id=te.period_id
-    WHERE te.class_id=?
-  ");
-  $stmt->execute([$classId]);
-  foreach ($stmt->fetchAll() as $r) {
-    $entries[$r['day_of_week'].'-'.$r['period_id']] = $r;
-  }
-}
+$entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
 ?>
 <div class="card card-soft">
   <div class="card-body p-4">

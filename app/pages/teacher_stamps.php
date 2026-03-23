@@ -13,7 +13,7 @@ $teachers = db()->query("
     t.fixed_salary,
     t.phone,
     t.stamp_code,
-    t.stamp_secret
+    t.auth_app_secret
   FROM users u
   LEFT JOIN teachers t ON t.user_id = u.id
   WHERE u.role = 'teacher'
@@ -63,7 +63,7 @@ foreach ($teachers as $teacher) {
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
           <div>
             <div class="h4 fw-bold mb-1">Teacher Stamp Desk</div>
-            <div class="text-muted small">Live teacher codes, rotating 1-minute 2FA, and today&apos;s office stamp activity.</div>
+            <div class="text-muted small">Teacher code, authenticator-app setup, temporary fallback codes, and today&apos;s office stamp activity.</div>
           </div>
           <a class="btn btn-primary" href="<?= BASE_URL ?>/timestap.php" target="_blank" rel="noopener">
             <i class="bi bi-box-arrow-up-right me-1"></i>Open Stamp Page
@@ -104,7 +104,7 @@ foreach ($teachers as $teacher) {
     <div class="card card-soft">
       <div class="card-body p-4">
         <div class="alert alert-info mb-0">
-          Teachers use the public stamp page with their personal teacher code plus the live 6-digit security code shown here.
+          Teachers use the public stamp page with their teacher code plus their authenticator-app code. If the phone is unavailable, issue a temporary fallback code here.
         </div>
       </div>
     </div>
@@ -127,7 +127,8 @@ foreach ($teachers as $teacher) {
             <th>Teacher</th>
             <th>Email</th>
             <th>Teacher Code</th>
-            <th>2FA (1 min)</th>
+            <th>Authenticator App</th>
+            <th>Temp Code</th>
             <th>Today</th>
             <th>Salary Type</th>
             <th>Hourly</th>
@@ -150,8 +151,18 @@ foreach ($teachers as $teacher) {
                 <div class="fw-semibold" data-stamp-code="<?= $teacherId ?>"><?= htmlspecialchars($teacher['stamp_code'] ?? '-') ?></div>
               </td>
               <td>
-                <div class="fw-bold" data-stamp-otp="<?= $teacherId ?>"><?= htmlspecialchars(($teacher['stamp_secret'] ?? '') !== '' ? teacher_stamp_current_otp((string)$teacher['stamp_secret']) : '------') ?></div>
-                <div class="text-muted small" data-stamp-expiry="<?= $teacherId ?>">refreshing...</div>
+                <div class="fw-bold" data-auth-app-status="<?= $teacherId ?>"><?= !empty($teacher['auth_app_secret']) ? 'Configured' : 'Not Set' ?></div>
+                <div class="text-muted small" data-auth-app-info="<?= $teacherId ?>"><?= !empty($teacher['auth_app_secret']) ? 'Use Reset App to re-enroll' : 'Setup required' ?></div>
+                <button class="btn btn-sm btn-soft mt-2" type="button" data-action="reset_auth_app" data-api="<?= BASE_URL ?>/app/api/teacher_stamp_auth_app_reset.php" data-teacher-user-id="<?= $teacherId ?>">
+                  <?= !empty($teacher['auth_app_secret']) ? 'Reset App' : 'Setup App' ?>
+                </button>
+              </td>
+              <td>
+                <div class="fw-bold" data-temp-code="<?= $teacherId ?>">-</div>
+                <div class="text-muted small" data-temp-expiry="<?= $teacherId ?>">No temp code</div>
+                <button class="btn btn-sm btn-soft mt-2" type="button" data-action="issue_temp_code" data-api="<?= BASE_URL ?>/app/api/teacher_stamp_temp_code_create.php" data-teacher-user-id="<?= $teacherId ?>">
+                  Issue Temp Code
+                </button>
               </td>
               <td class="small">
                 <div class="text-muted">In: <?= htmlspecialchars($stampStatus['arrived_at'] ?? '-') ?></div>
@@ -175,7 +186,7 @@ foreach ($teachers as $teacher) {
             </tr>
           <?php endforeach; ?>
           <?php if (!$teachers): ?>
-            <tr><td colspan="10" class="text-muted">No teachers found.</td></tr>
+            <tr><td colspan="11" class="text-muted">No teachers found.</td></tr>
           <?php endif; ?>
         </tbody>
           </table>
@@ -185,6 +196,45 @@ foreach ($teachers as $teacher) {
   </div>
 </div>
 
+<div class="modal fade" id="authAppSetupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">Authenticator App Setup</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-4 align-items-start">
+          <div class="col-lg-5 text-center">
+            <div id="authQrWrap" class="p-3 rounded-4 d-inline-flex align-items-center justify-content-center" style="background:#fff; min-width:260px; min-height:260px;">
+              <div class="text-muted small">QR code will appear here</div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="fw-semibold mb-1" id="authTeacherName">Teacher</div>
+            <div class="text-muted small mb-3">Scan this QR code in Google Authenticator, Microsoft Authenticator, 2FAS or Aegis. Standard TOTP refresh is every 30 seconds.</div>
+            <div class="mb-3">
+              <label class="form-label">Secret Key</label>
+              <input class="form-control" id="authSecretKey" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">OTP URI</label>
+              <textarea class="form-control" id="authOtpUri" rows="4" readonly></textarea>
+            </div>
+            <div class="alert alert-secondary mb-0">
+              If the teacher forgets the phone, use <b>Issue Temp Code</b>. The temp code stays valid for 15 minutes and is consumed after one successful use.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-soft" type="button" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
 async function refreshTeacherStampCodes() {
   try {
@@ -192,11 +242,15 @@ async function refreshTeacherStampCodes() {
     const teachers = Array.isArray(out.teachers) ? out.teachers : [];
     teachers.forEach((teacher) => {
       const codeEl = document.querySelector(`[data-stamp-code="${teacher.teacher_user_id}"]`);
-      const otpEl = document.querySelector(`[data-stamp-otp="${teacher.teacher_user_id}"]`);
-      const expiryEl = document.querySelector(`[data-stamp-expiry="${teacher.teacher_user_id}"]`);
+      const authAppStatusEl = document.querySelector(`[data-auth-app-status="${teacher.teacher_user_id}"]`);
+      const authAppInfoEl = document.querySelector(`[data-auth-app-info="${teacher.teacher_user_id}"]`);
+      const tempCodeEl = document.querySelector(`[data-temp-code="${teacher.teacher_user_id}"]`);
+      const tempExpiryEl = document.querySelector(`[data-temp-expiry="${teacher.teacher_user_id}"]`);
       if (codeEl) codeEl.textContent = teacher.stamp_code || '-';
-      if (otpEl) otpEl.textContent = teacher.current_otp || '------';
-      if (expiryEl) expiryEl.textContent = `refreshing in ${teacher.expires_in || 0}s`;
+      if (authAppStatusEl) authAppStatusEl.textContent = teacher.auth_app_enabled ? 'Configured' : 'Not Set';
+      if (authAppInfoEl) authAppInfoEl.textContent = teacher.auth_app_enabled ? 'Use Reset App to re-enroll' : 'Setup required';
+      if (tempCodeEl) tempCodeEl.textContent = teacher.temp_code || '-';
+      if (tempExpiryEl) tempExpiryEl.textContent = teacher.temp_code ? `expires in ${teacher.temp_code_expires_in || 0}s` : 'No temp code';
     });
   } catch (err) {
     // Keep the last visible values.
@@ -205,4 +259,57 @@ async function refreshTeacherStampCodes() {
 
 refreshTeacherStampCodes();
 setInterval(refreshTeacherStampCodes, 5000);
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="issue_temp_code"]');
+  const resetBtn = e.target.closest('[data-action="reset_auth_app"]');
+
+  if (btn) {
+    try {
+      const out = await api(btn.dataset.api, {
+        method: 'POST',
+        body: JSON.stringify({ teacher_user_id: Number(btn.dataset.teacherUserId || 0) })
+      });
+      toast(`Temp code ${out.temp_code} issued for ${out.teacher_name}`, 'success');
+      refreshTeacherStampCodes();
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+    return;
+  }
+
+  if (resetBtn) {
+    try {
+      const out = await api(resetBtn.dataset.api, {
+        method: 'POST',
+        body: JSON.stringify({ teacher_user_id: Number(resetBtn.dataset.teacherUserId || 0) })
+      });
+      const nameEl = document.getElementById('authTeacherName');
+      const secretEl = document.getElementById('authSecretKey');
+      const uriEl = document.getElementById('authOtpUri');
+      const qrWrap = document.getElementById('authQrWrap');
+      if (nameEl) nameEl.textContent = `${out.teacher_name} (${out.teacher_email})`;
+      if (secretEl) secretEl.value = out.secret || '';
+      if (uriEl) uriEl.value = out.otpauth_uri || '';
+      if (qrWrap) {
+        qrWrap.innerHTML = '';
+        if (window.QRCode && out.otpauth_uri) {
+          const canvas = document.createElement('canvas');
+          qrWrap.appendChild(canvas);
+          await QRCode.toCanvas(canvas, out.otpauth_uri, { width: 240, margin: 1 });
+        } else {
+          qrWrap.textContent = out.otpauth_uri || 'QR code could not be generated.';
+        }
+      }
+      const modalEl = document.getElementById('authAppSetupModal');
+      if (modalEl && window.bootstrap?.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      }
+      toast(`Authenticator app secret reset for ${out.teacher_name}`, 'success');
+      refreshTeacherStampCodes();
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+  }
+});
 </script>

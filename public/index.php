@@ -30,7 +30,7 @@ if (!in_array($page, $publicPages, true)) {
 $allowedPages = [
   'login','logout','home','dashboard','admin_dashboard',
   'admin_users','admin_teachers','teacher_stamps','admin_classes','admin_subjects','admin_assignments','admin_availability',
-  'attendance','attendance_management','timetable','reports','branding','settings','password_reset','teacher_portal','timestap'
+  'attendance','attendance_management','timetable','timetable_exports','reports','branding','settings','password_reset','teacher_portal','timestap'
 ];
 
 if (!in_array($page, $allowedPages, true)) {

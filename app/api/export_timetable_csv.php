@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
+require_once __DIR__ . '/../timetable_helpers.php';
 
 require_auth();
 $u = current_user();
@@ -27,21 +28,8 @@ if ($u['role'] === 'prefect') {
   if (!$chk->fetch()) { http_response_code(403); exit('Forbidden'); }
 }
 
-$stmt = db()->prepare("
-SELECT te.day_of_week, p.sort_order, p.label period_label, p.start_time, p.end_time,
-       c.name class_name, s.code subject_code, s.name subject_name, u.full_name teacher_name
-FROM timetable_entries te
-JOIN periods p ON p.id=te.period_id
-JOIN classes c ON c.id=te.class_id
-JOIN subjects s ON s.id=te.subject_id
-JOIN users u ON u.id=te.teacher_user_id
-WHERE te.class_id=?
-ORDER BY te.day_of_week, p.sort_order
-");
-$stmt->execute([$classId]);
-$rows = $stmt->fetchAll();
-
-$days = [1=>'Mon',2=>'Tue',3=>'Wed',4=>'Thu',5=>'Fri',6=>'Sat',7=>'Sun'];
+$rows = timetable_fetch_class_rows($classId);
+$days = timetable_days();
 
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="timetable_' . preg_replace('/[^a-z0-9_-]+/i', '_', (string)$class['name']) . '.csv"');

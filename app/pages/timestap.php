@@ -81,7 +81,7 @@ $logo = $settings['logo_path']
             <div>
               <div class="text-uppercase small timestap-kicker">EduTrack Office Desk</div>
               <div class="display-6 fw-bold mb-1">Teacher Time Stamp</div>
-              <div class="text-muted timestap-subtitle">Use your teacher code and the current 6-digit security code from the principal or admin.</div>
+              <div class="text-muted timestap-subtitle">Use your teacher code and your authenticator-app code. If your phone is unavailable, use a temporary office fallback code.</div>
             </div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
@@ -131,7 +131,7 @@ $logo = $settings['logo_path']
                 <input class="form-control form-control-lg timestap-input" id="stampCodeInput" placeholder="Example: TR102944" autocomplete="off" required>
               </div>
               <div class="col-12">
-                <label class="form-label">6-Digit Security Code</label>
+                <label class="form-label">Authenticator Or Temporary Code</label>
                 <input class="form-control form-control-lg timestap-input" id="stampOtpInput" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="000000" autocomplete="off" required>
               </div>
               <div class="col-12">
@@ -163,7 +163,7 @@ $logo = $settings['logo_path']
             <div class="timestap-steps">
               <div class="timestap-step">
                 <span class="timestap-step-no">1</span>
-                <div>Ask the office for the current 6-digit security code.</div>
+                <div>Use the 6-digit code from your authenticator app or ask the office for a temporary fallback code if your phone is unavailable.</div>
               </div>
               <div class="timestap-step">
                 <span class="timestap-step-no">2</span>

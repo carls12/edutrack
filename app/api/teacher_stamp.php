@@ -18,12 +18,18 @@ if (!$teacher) {
 if ((int)$teacher['is_active'] !== 1 || (int)$teacher['teacher_active'] !== 1) {
   fail('This teacher is inactive.');
 }
-if (!teacher_stamp_verify_otp((string)$teacher['stamp_secret'], $otp)) {
-  fail('Security code is invalid or expired.');
+$usedTempCode = false;
+if (teacher_stamp_temp_code_valid((int)$teacher['teacher_user_id'], $otp)) {
+  $usedTempCode = true;
+} elseif (!teacher_stamp_verify_otp((string)$teacher['auth_app_secret'], $otp)) {
+  fail('Authenticator code or temporary code is invalid or expired.');
 }
 
 try {
   $record = teacher_stamp_record((int)$teacher['teacher_user_id'], $action);
+  if ($usedTempCode) {
+    teacher_stamp_consume_temp_code((int)$teacher['teacher_user_id'], $otp);
+  }
 } catch (RuntimeException $e) {
   fail($e->getMessage());
 } catch (Throwable $e) {
@@ -34,4 +40,5 @@ ok([
   'teacher_name' => $teacher['full_name'],
   'status' => $record['status'],
   'event_time' => $record['event_time'],
+  'used_temp_code' => $usedTempCode,
 ]);

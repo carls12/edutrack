@@ -4,6 +4,10 @@ csrf_check_from_header();
 require_api_role(['admin']);
 
 $d = json_input();
+$contentType = (string)($_SERVER['CONTENT_TYPE'] ?? '');
+if ($d === [] && stripos($contentType, 'application/json') === false && !empty($_POST)) {
+  $d = $_POST;
+}
 $teacher = (int)($d['teacher_user_id'] ?? 0);
 if ($teacher<=0) fail('Invalid teacher.');
 

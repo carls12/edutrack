@@ -6,6 +6,7 @@ $canManageTeachers = current_user()['role'] === 'admin';
 $teachers = db()->query("
   SELECT u.id user_id, u.full_name, u.email, u.is_active,
          t.salary_type, t.hourly_rate, t.fixed_salary, t.phone, t.active, t.stamp_code, t.stamp_secret
+         , t.auth_app_secret
   FROM users u
   LEFT JOIN teachers t ON t.user_id=u.id
   WHERE u.role='teacher'
@@ -13,6 +14,8 @@ $teachers = db()->query("
 ")->fetchAll();
 $subjects = db()->query("SELECT id, code, name FROM subjects WHERE is_active=1 ORDER BY code")->fetchAll();
 $classes = db()->query("SELECT id, name FROM classes ORDER BY name")->fetchAll();
+$periods = db()->query("SELECT id, label, start_time, end_time, is_teaching_period FROM periods ORDER BY sort_order")->fetchAll();
+$dayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri'];
 
 $assignRows = db()->query("
   SELECT a.teacher_user_id, a.subject_id, a.class_id, a.hours_per_week,
@@ -36,6 +39,34 @@ foreach ($assignRows as $r) {
     'class_name' => $r['class_name'],
   ];
 }
+
+$availabilityRows = db()->query("
+  SELECT teacher_user_id, day_of_week, MAX(is_available) AS has_available
+  FROM teacher_availability
+  GROUP BY teacher_user_id, day_of_week
+  ORDER BY teacher_user_id, day_of_week
+")->fetchAll();
+
+$availableDaysByTeacher = [];
+$availabilityByTeacherSlot = [];
+foreach ($availabilityRows as $row) {
+  $teacherId = (int)$row['teacher_user_id'];
+  if (!isset($availableDaysByTeacher[$teacherId])) {
+    $availableDaysByTeacher[$teacherId] = [];
+  }
+  if ((int)$row['has_available'] === 1) {
+    $availableDaysByTeacher[$teacherId][] = (int)$row['day_of_week'];
+  }
+}
+
+$slotAvailabilityRows = db()->query("
+  SELECT teacher_user_id, day_of_week, period_id, is_available
+  FROM teacher_availability
+  ORDER BY teacher_user_id, day_of_week, period_id
+")->fetchAll();
+foreach ($slotAvailabilityRows as $row) {
+  $availabilityByTeacherSlot[(int)$row['teacher_user_id']][(int)$row['day_of_week'] . '-' . (int)$row['period_id']] = (int)$row['is_available'];
+}
 ?>
 <div class="card card-soft">
   <div class="card-body p-4">
@@ -50,20 +81,21 @@ foreach ($assignRows as $r) {
     </div>
 
     <div class="alert alert-info mt-3 mb-0">
-      Teachers use the public stamp page with their personal teacher code plus the live 6-digit security code shown here.
+      Teachers use the public stamp page with their teacher code plus their authenticator-app code. Temporary codes remain available as fallback.
     </div>
 
     <div class="table-responsive mt-3">
       <table class="table table-dark table-hover align-middle">
         <thead class="text-muted">
           <tr>
-            <th>Teacher</th><th>Email</th><th>Teacher Code</th><th>2FA (1 min)</th><th>Today</th><th>Salary Type</th><th>Hourly</th><th>Fixed</th><th>Phone</th><th>Subjects / Classes</th><?php if ($canManageTeachers): ?><th class="text-end">Action</th><?php endif; ?>
+            <th>Teacher</th><th>Email</th><th>Teacher Code</th><th>Auth App</th><th>Temp Code</th><th>Today</th><th>Days</th><th>Salary Type</th><th>Hourly</th><th>Fixed</th><th>Phone</th><th>Subjects / Classes</th><?php if ($canManageTeachers): ?><th class="text-end">Action</th><?php endif; ?>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($teachers as $t): ?>
           <?php $rows = $assignByTeacher[(int)$t['user_id']] ?? []; ?>
           <?php $stampStatus = teacher_stamp_today_status((int)$t['user_id']); ?>
+          <?php $teacherDays = $availableDaysByTeacher[(int)$t['user_id']] ?? [1,2,3,4,5]; ?>
           <tr>
             <td class="fw-semibold"><?= htmlspecialchars($t['full_name']) ?></td>
             <td class="text-muted"><?= htmlspecialchars($t['email']) ?></td>
@@ -71,12 +103,24 @@ foreach ($assignRows as $r) {
               <div class="fw-semibold" data-stamp-code="<?= (int)$t['user_id'] ?>"><?= htmlspecialchars($t['stamp_code'] ?? '-') ?></div>
             </td>
             <td>
-              <div class="fw-bold" data-stamp-otp="<?= (int)$t['user_id'] ?>"><?= htmlspecialchars(($t['stamp_secret'] ?? '') !== '' ? teacher_stamp_current_otp((string)$t['stamp_secret']) : '------') ?></div>
-              <div class="text-muted small" data-stamp-expiry="<?= (int)$t['user_id'] ?>">refreshing...</div>
+              <div class="fw-bold" data-auth-app-status="<?= (int)$t['user_id'] ?>"><?= !empty($t['auth_app_secret']) ? 'Configured' : 'Not Set' ?></div>
+              <div class="text-muted small" data-auth-app-info="<?= (int)$t['user_id'] ?>"><?= !empty($t['auth_app_secret']) ? 'Manage on Stamp Desk' : 'Setup on Stamp Desk' ?></div>
+            </td>
+            <td class="small">
+              <div class="fw-bold" data-temp-code="<?= (int)$t['user_id'] ?>">-</div>
+              <div class="text-muted" data-temp-expiry="<?= (int)$t['user_id'] ?>">No temp code</div>
+              <?php if ($canManageTeachers): ?>
+                <button class="btn btn-sm btn-soft mt-2" type="button" data-action="issue_temp_code" data-api="<?= BASE_URL ?>/app/api/teacher_stamp_temp_code_create.php" data-teacher-user-id="<?= (int)$t['user_id'] ?>">
+                  Temp Code
+                </button>
+              <?php endif; ?>
             </td>
             <td class="small">
               <div class="text-muted">In: <?= htmlspecialchars($stampStatus['arrived_at'] ?? '-') ?></div>
               <div class="text-muted">Out: <?= htmlspecialchars($stampStatus['departed_at'] ?? '-') ?></div>
+            </td>
+            <td class="small text-muted">
+              <?= htmlspecialchars(implode(', ', array_map(static fn($day) => $dayLabels[$day] ?? (string)$day, $teacherDays))) ?>
             </td>
             <td><span class="badge text-bg-secondary"><?= htmlspecialchars($t['salary_type'] ?? 'hourly') ?></span></td>
             <td><?= htmlspecialchars($t['hourly_rate'] ?? '') ?></td>
@@ -108,7 +152,9 @@ foreach ($assignRows as $r) {
                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalTeacherAssign"
                   data-user_id="<?= (int)$t['user_id'] ?>"
                   data-full_name="<?= htmlspecialchars($t['full_name'], ENT_QUOTES) ?>"
-                  data-assignments="<?= htmlspecialchars(json_encode($rows), ENT_QUOTES) ?>">
+                  data-assignments="<?= htmlspecialchars(json_encode($rows), ENT_QUOTES) ?>"
+                  data-available_days="<?= htmlspecialchars(json_encode($teacherDays), ENT_QUOTES) ?>"
+                  data-availability_slots="<?= htmlspecialchars(json_encode($availabilityByTeacherSlot[(int)$t['user_id']] ?? new stdClass()), ENT_QUOTES) ?>">
                   <i class="bi bi-diagram-3 me-1"></i>Assign Subjects
                 </button>
               </div>
@@ -176,7 +222,44 @@ foreach ($assignRows as $r) {
       <form class="modal-body" id="teacherAssignForm">
         <input type="hidden" id="asTeacherId">
         <div class="fw-semibold" id="asTeacherName"></div>
-        <div class="text-muted small mb-3">Set multiple subject-class combinations for this teacher.</div>
+        <div class="text-muted small mb-3">Set subject/class assignments and the exact periods this teacher is available.</div>
+
+        <div class="card card-soft mb-3">
+          <div class="card-body">
+            <div class="fw-semibold mb-2">Availability By Day And Period</div>
+            <div class="text-muted small mb-3">Check only the periods when this teacher is actually present in school.</div>
+            <div class="table-responsive">
+              <table class="table table-dark table-bordered align-middle mb-0">
+                <thead class="text-muted">
+                  <tr>
+                    <th>Period</th>
+                    <?php foreach ($dayLabels as $dayNumber => $dayLabel): ?>
+                      <th class="text-center"><?= htmlspecialchars($dayLabel) ?></th>
+                    <?php endforeach; ?>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($periods as $period): ?>
+                    <tr>
+                      <td class="fw-semibold">
+                        <?= htmlspecialchars($period['label']) ?>
+                        <div class="text-muted small"><?= htmlspecialchars($period['start_time']) ?>-<?= htmlspecialchars($period['end_time']) ?></div>
+                      </td>
+                      <?php foreach ($dayLabels as $dayNumber => $dayLabel): ?>
+                        <?php $disabled = ((int)$period['is_teaching_period'] !== 1) ? 'disabled' : ''; ?>
+                        <td class="text-center">
+                          <div class="form-check form-switch d-flex justify-content-center">
+                            <input class="form-check-input" type="checkbox" data-availability-slot="<?= (int)$dayNumber ?>-<?= (int)$period['id'] ?>" <?= $disabled ?>>
+                          </div>
+                        </td>
+                      <?php endforeach; ?>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         <div class="table-responsive">
           <table class="table table-dark table-hover align-middle" id="assignEditTable">
@@ -216,6 +299,7 @@ if (canManageTeachers) {
 
 const subjectOptions = <?= json_encode(array_map(static fn($s) => ['id'=>(int)$s['id'],'label'=>$s['code'].' - '.$s['name']], $subjects)) ?>;
 const classOptions = <?= json_encode(array_map(static fn($c) => ['id'=>(int)$c['id'],'label'=>$c['name']], $classes)) ?>;
+const teachingPeriodIds = <?= json_encode(array_values(array_map(static fn($p) => (int)$p['id'], array_values(array_filter($periods, static fn($p) => (int)$p['is_teaching_period'] === 1))))) ?>;
 
 function optionHtml(options, selectedId){
   return options.map(o => `<option value="${o.id}" ${String(o.id)===String(selectedId) ? 'selected' : ''}>${o.label}</option>`).join('');
@@ -237,6 +321,20 @@ function buildAssignRow(item = {subject_id:'', class_id:'', hours_per_week:2}){
   return tr;
 }
 
+function setAvailabilitySlots(slots){
+  const map = (slots && typeof slots === 'object') ? slots : {};
+  document.querySelectorAll('[data-availability-slot]').forEach((checkbox) => {
+    const key = checkbox.dataset.availabilitySlot;
+    const [dayStr, periodStr] = key.split('-');
+    const periodId = Number(periodStr);
+    if (!teachingPeriodIds.includes(periodId)) {
+      checkbox.checked = false;
+      return;
+    }
+    checkbox.checked = Object.prototype.hasOwnProperty.call(map, key) ? String(map[key]) === '1' : true;
+  });
+}
+
 if (canManageTeachers) {
   const assignModal = document.getElementById('modalTeacherAssign');
   assignModal?.addEventListener('show.bs.modal', (e)=>{
@@ -248,6 +346,9 @@ if (canManageTeachers) {
     body.innerHTML = '';
     let rows = [];
     try { rows = JSON.parse(b.dataset.assignments || '[]'); } catch(_) { rows = []; }
+    let availabilitySlots = {};
+    try { availabilitySlots = JSON.parse(b.dataset.availability_slots || '{}'); } catch(_) { availabilitySlots = {}; }
+    setAvailabilitySlots(availabilitySlots);
     if (!Array.isArray(rows) || rows.length === 0) rows = [{subject_id:'', class_id:'', hours_per_week:2}];
     rows.forEach(r => body.appendChild(buildAssignRow(r)));
   });
@@ -260,6 +361,7 @@ if (canManageTeachers) {
     e.preventDefault();
     const teacherId = Number(document.getElementById('asTeacherId').value || 0);
     const rows = [...document.querySelectorAll('#assignEditBody tr')];
+    const availabilitySlots = [...document.querySelectorAll('[data-availability-slot]:checked')].map((el) => String(el.dataset.availabilitySlot || ''));
     const assignments = rows.map(tr => ({
       subject_id: Number(tr.querySelector('[data-field="subject_id"]').value || 0),
       class_id: Number(tr.querySelector('[data-field="class_id"]').value || 0),
@@ -269,7 +371,7 @@ if (canManageTeachers) {
     try{
       await api("<?= BASE_URL ?>/app/api/teacher_assignments_bulk_save.php", {
         method: 'POST',
-        body: JSON.stringify({ teacher_user_id: teacherId, assignments })
+        body: JSON.stringify({ teacher_user_id: teacherId, assignments, availability_slots: availabilitySlots })
       });
       toast('Teacher assignments saved', 'success');
       window.location.reload();
@@ -285,11 +387,15 @@ async function refreshTeacherStampCodes() {
     const teachers = Array.isArray(out.teachers) ? out.teachers : [];
     teachers.forEach((teacher) => {
       const codeEl = document.querySelector(`[data-stamp-code="${teacher.teacher_user_id}"]`);
-      const otpEl = document.querySelector(`[data-stamp-otp="${teacher.teacher_user_id}"]`);
-      const expiryEl = document.querySelector(`[data-stamp-expiry="${teacher.teacher_user_id}"]`);
+      const authAppStatusEl = document.querySelector(`[data-auth-app-status="${teacher.teacher_user_id}"]`);
+      const authAppInfoEl = document.querySelector(`[data-auth-app-info="${teacher.teacher_user_id}"]`);
+      const tempCodeEl = document.querySelector(`[data-temp-code="${teacher.teacher_user_id}"]`);
+      const tempExpiryEl = document.querySelector(`[data-temp-expiry="${teacher.teacher_user_id}"]`);
       if (codeEl) codeEl.textContent = teacher.stamp_code || '-';
-      if (otpEl) otpEl.textContent = teacher.current_otp || '------';
-      if (expiryEl) expiryEl.textContent = `Expires in ${teacher.expires_in || 0}s`;
+      if (authAppStatusEl) authAppStatusEl.textContent = teacher.auth_app_enabled ? 'Configured' : 'Not Set';
+      if (authAppInfoEl) authAppInfoEl.textContent = teacher.auth_app_enabled ? 'Manage on Stamp Desk' : 'Setup on Stamp Desk';
+      if (tempCodeEl) tempCodeEl.textContent = teacher.temp_code || '-';
+      if (tempExpiryEl) tempExpiryEl.textContent = teacher.temp_code ? `Temp ${teacher.temp_code_expires_in || 0}s` : 'No temp code';
     });
   } catch (err) {
     // Leave the last shown code in place; a failed refresh is non-blocking.
@@ -298,4 +404,20 @@ async function refreshTeacherStampCodes() {
 
 refreshTeacherStampCodes();
 setInterval(refreshTeacherStampCodes, 5000);
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="issue_temp_code"]');
+  if (!btn) return;
+
+  try {
+    const out = await api(btn.dataset.api, {
+      method: 'POST',
+      body: JSON.stringify({ teacher_user_id: Number(btn.dataset.teacherUserId || 0) })
+    });
+    toast(`Temp code ${out.temp_code} issued for ${out.teacher_name}`, 'success');
+    refreshTeacherStampCodes();
+  } catch (err) {
+    toast('Error: ' + err.message, 'error');
+  }
+});
 </script>

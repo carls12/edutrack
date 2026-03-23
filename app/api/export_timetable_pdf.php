@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
+require_once __DIR__ . '/../timetable_helpers.php';
 
 require_auth();
 $u = current_user();
@@ -27,87 +28,24 @@ if ($u['role'] === 'prefect') {
   if (!$chk->fetch()) { http_response_code(403); exit('Forbidden'); }
 }
 
-$settings = db()->query("SELECT * FROM school_settings WHERE id=1")->fetch() ?: ['school_name'=>APP_NAME,'logo_path'=>null];
-$schoolName = (string)($settings['school_name'] ?? APP_NAME);
-$logoPath = (string)($settings['logo_path'] ?? '');
-$watermarkPath = (string)($settings['watermark_path'] ?? '');
-function image_file_to_data_uri(string $file): string {
-  if (!is_file($file)) return '';
-  $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-  if ($ext === 'webp' && function_exists('imagecreatefromwebp')) {
-    $img = @imagecreatefromwebp($file);
-    if ($img !== false) {
-      ob_start();
-      imagepng($img);
-      $png = ob_get_clean();
-      imagedestroy($img);
-      if ($png !== false) return 'data:image/png;base64,' . base64_encode($png);
-    }
-  }
-  $mimeMap = [
-    'png' => 'image/png',
-    'jpg' => 'image/jpeg',
-    'jpeg' => 'image/jpeg',
-    'gif' => 'image/gif',
-    'webp' => 'image/webp',
-    'svg' => 'image/svg+xml',
-  ];
-  $mime = $mimeMap[$ext] ?? 'application/octet-stream';
-  $data = @file_get_contents($file);
-  if ($data === false || $data === '') return '';
-  return 'data:' . $mime . ';base64,' . base64_encode($data);
-}
-$logoFile = '';
-if ($logoPath !== '') {
-  $candidate = __DIR__ . '/../../public/' . ltrim($logoPath, '/');
-  $logoFile = image_file_to_data_uri($candidate);
-}
-$watermarkFile = '';
-if ($watermarkPath !== '') {
-  $candidate = __DIR__ . '/../../public/' . ltrim($watermarkPath, '/');
-  $watermarkFile = image_file_to_data_uri($candidate);
-}
+$branding = timetable_branding_assets();
+$schoolName = (string)($branding['settings']['school_name'] ?? APP_NAME);
+$logoFile = (string)$branding['logo_file'];
+$watermarkFile = (string)$branding['watermark_file'];
 
-$periods = db()->query("SELECT id, label, start_time, end_time, sort_order, is_teaching_period FROM periods ORDER BY sort_order")->fetchAll();
-$days = [1=>'Monday',2=>'Tuesday',3=>'Wednesday',4=>'Thursday',5=>'Friday'];
+$periods = timetable_periods();
+$days = timetable_days();
 
-$stmt = db()->prepare("
-SELECT te.day_of_week, te.period_id, p.sort_order,
-       s.code subject_code, s.name subject_name, u.full_name teacher_name
-FROM timetable_entries te
-JOIN periods p ON p.id=te.period_id
-JOIN subjects s ON s.id=te.subject_id
-JOIN users u ON u.id=te.teacher_user_id
-WHERE te.class_id=?
-ORDER BY te.day_of_week, p.sort_order
-");
-$stmt->execute([$classId]);
-$rows = $stmt->fetchAll();
+$rows = timetable_fetch_class_rows($classId);
 
 $entries = [];
 foreach ($rows as $r) {
   $entries[$r['day_of_week'] . '-' . $r['period_id']] = $r;
 }
 
-$signatureSlots = 2;
-$signatories = [];
-
-db()->exec("CREATE TABLE IF NOT EXISTS timetable_signature_settings (
-  id INT PRIMARY KEY DEFAULT 1,
-  signature_slots INT NOT NULL DEFAULT 2,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-)");
-db()->exec("CREATE TABLE IF NOT EXISTS timetable_signatories (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(120) NOT NULL,
-  title VARCHAR(120) NOT NULL,
-  sort_order INT NOT NULL DEFAULT 10,
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
-$settingsRow = db()->query("SELECT signature_slots FROM timetable_signature_settings WHERE id=1")->fetch();
-if ($settingsRow) $signatureSlots = max(1, min(10, (int)$settingsRow['signature_slots']));
-$signatories = db()->query("SELECT name, title FROM timetable_signatories WHERE is_active=1 ORDER BY sort_order, id")->fetchAll();
+$signatoryData = timetable_signatory_data();
+$signatureSlots = (int)$signatoryData['signature_slots'];
+$signatories = $signatoryData['signatories'];
 
 $logoHtml = $logoFile !== '' ? '<img src="' . htmlspecialchars($logoFile) . '" style="height:55px;" />' : '';
 

@@ -8,6 +8,7 @@ const PAGE_ROLES = [
   'attendance' => ['admin','principal','prefect'],
   'attendance_management' => ['admin','principal'],
   'timetable' => ['admin','principal','teacher','prefect'],
+  'timetable_exports' => ['admin'],
   'reports' => ['admin','principal','teacher'],
   'settings' => ['admin'],
   'branding' => ['admin'],

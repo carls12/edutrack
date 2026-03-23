@@ -10,6 +10,7 @@ $menus = [
     ['Admin Dashboard','admin_dashboard','bi-grid-1x2'],
     ['Admin Users','admin_users','bi-people'],
     ['Admin Teachers','admin_teachers','bi-mortarboard'],
+    ['Teacher Stamp Desk','teacher_stamps','bi-shield-lock'],
     ['Admin Classes','admin_classes','bi-easel2'],
     ['Admin Subjects','admin_subjects','bi-journals'],
     ['Admin Assignments','admin_assignments','bi-link-45deg'],
@@ -17,6 +18,7 @@ $menus = [
     ['Attendance','attendance','bi-check2-square'],
     ['Attendance Mgmt','attendance_management','bi-clipboard2-check'],
     ['Timetable','timetable','bi-calendar3-week'],
+    ['Timetable Exports','timetable_exports','bi-download'],
     ['Reports','reports','bi-graph-up'],
     ['Branding','branding','bi-palette2'],
     ['Settings','settings','bi-gear'],
@@ -26,6 +28,7 @@ $menus = [
     ['Home','home','bi-house-door'],
     ['Dashboard','dashboard','bi-speedometer2'],
     ['Teachers','admin_teachers','bi-mortarboard'],
+    ['Teacher Stamp Desk','teacher_stamps','bi-shield-lock'],
     ['Attendance Validation','attendance','bi-shield-check'],
     ['Attendance Mgmt','attendance_management','bi-clipboard2-check'],
     ['Timetable','timetable','bi-calendar3-week'],
@@ -46,7 +49,15 @@ $menus = [
 ];
 
 $links = $menus[$role] ?? [];
-$mobileLinks = array_slice($links, 0, 4);
+$mobileLinks = [];
+foreach ($links as $link) {
+  if (in_array($link[1], ['home','dashboard','teacher_stamps','attendance','timetable'], true)) {
+    $mobileLinks[] = $link;
+  }
+}
+if ($mobileLinks === []) {
+  $mobileLinks = array_slice($links, 0, 4);
+}
 $settings = db()->query("SELECT * FROM school_settings WHERE id=1")->fetch() ?: [
   'school_name' => APP_NAME,
   'logo_path' => null,
