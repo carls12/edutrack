@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A3 Timetable Test - 30 Classes</title>
+  <style>
+    @page {
+      size: A3 landscape;
+      margin: 12mm;
+    }
+
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --line: #cfd8e3;
+      --text: #172033;
+      --muted: #5e6b85;
+      --head: #dfe8f3;
+      --accent: #0f766e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: linear-gradient(180deg, #eef4fa 0%, #f9fbfd 100%);
+      color: var(--text);
+      font: 12px/1.25 "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .sheet {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 10px 40px rgba(20, 32, 54, 0.08);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .title {
+      font-size: 28px;
+      font-weight: 800;
+      margin: 0 0 4px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.1);
+      color: var(--accent);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .day-block {
+      margin-top: 12px;
+    }
+
+    .day-title {
+      margin: 0 0 6px;
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #fff;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 4px 5px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+
+    th {
+      background: var(--head);
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .class-col {
+      width: 86px;
+      text-align: left;
+    }
+
+    .period-head {
+      font-size: 11px;
+    }
+
+    .period-time {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .cell-subject {
+      font-weight: 800;
+      font-size: 10px;
+    }
+
+    .cell-teacher {
+      color: var(--muted);
+      font-size: 10px;
+      margin-top: 2px;
+    }
+
+    .break {
+      text-align: center;
+      color: var(--muted);
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .footnote {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: #fff;
+      }
+
+      .sheet {
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div>
+        <h1 class="title">A3 Test Timetable Preview</h1>
+        <p class="subtitle">Beispieldokument mit 30 Klassen, 5 Tagen und 9 Perioden zum Layout-Test.</p>
+      </div>
+      <div class="badge">Nur Testdaten</div>
+    </div>
+
+    <div id="days"></div>
+
+    <p class="footnote">
+      Datei zum Testen der A3-Darstellung. Direkt im Browser öffnen oder als A3 Landscape drucken/exportieren.
+    </p>
+  </div>
+
+  <script>
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const periods = [
+      { label: "P1", time: "07:30-08:10" },
+      { label: "P2", time: "08:10-08:50" },
+      { label: "P3", time: "08:50-09:30" },
+      { label: "P4", time: "09:50-10:30" },
+      { label: "P5", time: "10:30-11:10" },
+      { label: "P6", time: "11:10-11:50" },
+      { label: "P7", time: "12:10-12:50" },
+      { label: "P8", time: "12:50-13:30" },
+      { label: "P9", time: "13:30-14:10" }
+    ];
+
+    const classes = Array.from({ length: 30 }, (_, i) => `Form ${Math.floor(i / 5) + 1}${String.fromCharCode(65 + (i % 5))}`);
+    const subjects = ["MATH", "ENG", "BIO", "CHEM", "PHY", "GEO", "HIST", "FREN", "ICT", "A MATH", "LIT", "ECON"];
+    const teachers = ["Mr. Nfor", "Mrs. Ndzi", "Mr. Tabi", "Mrs. Neba", "Mr. Fai", "Mrs. Ayuk", "Mr. Neba", "Mrs. Ngang", "Mr. Taku", "Mrs. Lyonga"];
+
+    function sampleCell(className, dayIndex, periodIndex) {
+      const seed = className.length + dayIndex * 7 + periodIndex * 11;
+      const subject = subjects[seed % subjects.length];
+      const teacher = teachers[(seed + dayIndex) % teachers.length];
+      return `
+        <div class="cell-subject">${subject}</div>
+        <div class="cell-teacher">${teacher}</div>
+      `;
+    }
+
+    const daysWrap = document.getElementById("days");
+
+    days.forEach((day, dayIndex) => {
+      const block = document.createElement("section");
+      block.className = "day-block";
+
+      const title = document.createElement("h2");
+      title.className = "day-title";
+      title.textContent = day;
+      block.appendChild(title);
+
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      headRow.innerHTML = `<th class="class-col">Class</th>` + periods.map(period => `
+        <th class="period-head">
+          ${period.label}
+          <span class="period-time">${period.time}</span>
+        </th>
+      `).join("");
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      classes.forEach((className, classIndex) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td class="class-col"><strong>${className}</strong></td>` + periods.map((_, periodIndex) => {
+          const isBreak = periodIndex === 2 && dayIndex % 2 === 0;
+          if (isBreak) {
+            return `<td class="break">BREAK</td>`;
+          }
+          return `<td>${sampleCell(className, dayIndex + classIndex, periodIndex)}</td>`;
+        }).join("");
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      block.appendChild(table);
+      daysWrap.appendChild(block);
+    });
+  </script>
+</body>
+</html>

@@ -6,7 +6,6 @@ $canManageTeachers = current_user()['role'] === 'admin';
 $teachers = db()->query("
   SELECT u.id user_id, u.full_name, u.email, u.is_active,
          t.salary_type, t.hourly_rate, t.fixed_salary, t.phone, t.active, t.stamp_code, t.stamp_secret
-         , t.auth_app_secret
   FROM users u
   LEFT JOIN teachers t ON t.user_id=u.id
   WHERE u.role='teacher'
@@ -81,14 +80,14 @@ foreach ($slotAvailabilityRows as $row) {
     </div>
 
     <div class="alert alert-info mt-3 mb-0">
-      Teachers use the public stamp page with their teacher code plus their authenticator-app code. Temporary codes remain available as fallback.
+      Teachers use the public stamp page with their teacher code plus the live 6-digit security code shown here.
     </div>
 
     <div class="table-responsive mt-3">
       <table class="table table-dark table-hover align-middle">
         <thead class="text-muted">
           <tr>
-            <th>Teacher</th><th>Email</th><th>Teacher Code</th><th>Auth App</th><th>Temp Code</th><th>Today</th><th>Days</th><th>Salary Type</th><th>Hourly</th><th>Fixed</th><th>Phone</th><th>Subjects / Classes</th><?php if ($canManageTeachers): ?><th class="text-end">Action</th><?php endif; ?>
+            <th>Teacher</th><th>Email</th><th>Teacher Code</th><th>2FA (1 min)</th><th>Today</th><th>Days</th><th>Salary Type</th><th>Hourly</th><th>Fixed</th><th>Phone</th><th>Subjects / Classes</th><?php if ($canManageTeachers): ?><th class="text-end">Action</th><?php endif; ?>
           </tr>
         </thead>
         <tbody>
@@ -103,17 +102,8 @@ foreach ($slotAvailabilityRows as $row) {
               <div class="fw-semibold" data-stamp-code="<?= (int)$t['user_id'] ?>"><?= htmlspecialchars($t['stamp_code'] ?? '-') ?></div>
             </td>
             <td>
-              <div class="fw-bold" data-auth-app-status="<?= (int)$t['user_id'] ?>"><?= !empty($t['auth_app_secret']) ? 'Configured' : 'Not Set' ?></div>
-              <div class="text-muted small" data-auth-app-info="<?= (int)$t['user_id'] ?>"><?= !empty($t['auth_app_secret']) ? 'Manage on Stamp Desk' : 'Setup on Stamp Desk' ?></div>
-            </td>
-            <td class="small">
-              <div class="fw-bold" data-temp-code="<?= (int)$t['user_id'] ?>">-</div>
-              <div class="text-muted" data-temp-expiry="<?= (int)$t['user_id'] ?>">No temp code</div>
-              <?php if ($canManageTeachers): ?>
-                <button class="btn btn-sm btn-soft mt-2" type="button" data-action="issue_temp_code" data-api="<?= BASE_URL ?>/app/api/teacher_stamp_temp_code_create.php" data-teacher-user-id="<?= (int)$t['user_id'] ?>">
-                  Temp Code
-                </button>
-              <?php endif; ?>
+              <div class="fw-bold" data-stamp-otp="<?= (int)$t['user_id'] ?>"><?= htmlspecialchars(($t['stamp_secret'] ?? '') !== '' ? teacher_stamp_current_otp((string)$t['stamp_secret']) : '------') ?></div>
+              <div class="text-muted small" data-stamp-expiry="<?= (int)$t['user_id'] ?>">refreshing...</div>
             </td>
             <td class="small">
               <div class="text-muted">In: <?= htmlspecialchars($stampStatus['arrived_at'] ?? '-') ?></div>
@@ -281,7 +271,6 @@ foreach ($slotAvailabilityRows as $row) {
   </div>
 </div>
 <?php endif; ?>
-
 <script>
 const canManageTeachers = <?= $canManageTeachers ? 'true' : 'false' ?>;
 if (canManageTeachers) {
@@ -387,15 +376,11 @@ async function refreshTeacherStampCodes() {
     const teachers = Array.isArray(out.teachers) ? out.teachers : [];
     teachers.forEach((teacher) => {
       const codeEl = document.querySelector(`[data-stamp-code="${teacher.teacher_user_id}"]`);
-      const authAppStatusEl = document.querySelector(`[data-auth-app-status="${teacher.teacher_user_id}"]`);
-      const authAppInfoEl = document.querySelector(`[data-auth-app-info="${teacher.teacher_user_id}"]`);
-      const tempCodeEl = document.querySelector(`[data-temp-code="${teacher.teacher_user_id}"]`);
-      const tempExpiryEl = document.querySelector(`[data-temp-expiry="${teacher.teacher_user_id}"]`);
+      const otpEl = document.querySelector(`[data-stamp-otp="${teacher.teacher_user_id}"]`);
+      const expiryEl = document.querySelector(`[data-stamp-expiry="${teacher.teacher_user_id}"]`);
       if (codeEl) codeEl.textContent = teacher.stamp_code || '-';
-      if (authAppStatusEl) authAppStatusEl.textContent = teacher.auth_app_enabled ? 'Configured' : 'Not Set';
-      if (authAppInfoEl) authAppInfoEl.textContent = teacher.auth_app_enabled ? 'Manage on Stamp Desk' : 'Setup on Stamp Desk';
-      if (tempCodeEl) tempCodeEl.textContent = teacher.temp_code || '-';
-      if (tempExpiryEl) tempExpiryEl.textContent = teacher.temp_code ? `Temp ${teacher.temp_code_expires_in || 0}s` : 'No temp code';
+      if (otpEl) otpEl.textContent = teacher.current_otp || '------';
+      if (expiryEl) expiryEl.textContent = `Expires in ${teacher.expires_in || 0}s`;
     });
   } catch (err) {
     // Leave the last shown code in place; a failed refresh is non-blocking.
@@ -405,19 +390,4 @@ async function refreshTeacherStampCodes() {
 refreshTeacherStampCodes();
 setInterval(refreshTeacherStampCodes, 5000);
 
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-action="issue_temp_code"]');
-  if (!btn) return;
-
-  try {
-    const out = await api(btn.dataset.api, {
-      method: 'POST',
-      body: JSON.stringify({ teacher_user_id: Number(btn.dataset.teacherUserId || 0) })
-    });
-    toast(`Temp code ${out.temp_code} issued for ${out.teacher_name}`, 'success');
-    refreshTeacherStampCodes();
-  } catch (err) {
-    toast('Error: ' + err.message, 'error');
-  }
-});
 </script>

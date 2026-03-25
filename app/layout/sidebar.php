@@ -10,7 +10,6 @@ $menus = [
     ['Admin Dashboard','admin_dashboard','bi-grid-1x2'],
     ['Admin Users','admin_users','bi-people'],
     ['Admin Teachers','admin_teachers','bi-mortarboard'],
-    ['Teacher Stamp Desk','teacher_stamps','bi-shield-lock'],
     ['Admin Classes','admin_classes','bi-easel2'],
     ['Admin Subjects','admin_subjects','bi-journals'],
     ['Admin Assignments','admin_assignments','bi-link-45deg'],
@@ -28,7 +27,6 @@ $menus = [
     ['Home','home','bi-house-door'],
     ['Dashboard','dashboard','bi-speedometer2'],
     ['Teachers','admin_teachers','bi-mortarboard'],
-    ['Teacher Stamp Desk','teacher_stamps','bi-shield-lock'],
     ['Attendance Validation','attendance','bi-shield-check'],
     ['Attendance Mgmt','attendance_management','bi-clipboard2-check'],
     ['Timetable','timetable','bi-calendar3-week'],
@@ -51,7 +49,7 @@ $menus = [
 $links = $menus[$role] ?? [];
 $mobileLinks = [];
 foreach ($links as $link) {
-  if (in_array($link[1], ['home','dashboard','teacher_stamps','attendance','timetable'], true)) {
+  if (in_array($link[1], ['home','dashboard','attendance','timetable','admin_teachers'], true)) {
     $mobileLinks[] = $link;
   }
 }

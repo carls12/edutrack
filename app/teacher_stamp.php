@@ -3,8 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
-const TEACHER_STAMP_OTP_INTERVAL = 30;
-const TEACHER_STAMP_TEMP_CODE_MINUTES = 15;
+const TEACHER_STAMP_OTP_INTERVAL = 60;
 
 function teacher_stamp_ensure_schema(): void {
   static $done = false;
@@ -49,21 +48,6 @@ function teacher_stamp_ensure_schema(): void {
       ADD COLUMN source ENUM('manual','prefect_card','teacher_stamp') NOT NULL DEFAULT 'manual' AFTER worked_minutes
     ");
   }
-
-  $pdo->exec("
-    CREATE TABLE IF NOT EXISTS teacher_stamp_temp_codes (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      teacher_user_id INT NOT NULL,
-      code_value VARCHAR(12) NOT NULL,
-      expires_at DATETIME NOT NULL,
-      used_at DATETIME DEFAULT NULL,
-      created_by_user_id INT DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      KEY idx_temp_teacher (teacher_user_id, expires_at, used_at),
-      FOREIGN KEY (teacher_user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
-    )
-  ");
 
   teacher_stamp_seed_credentials();
   $done = true;
@@ -258,102 +242,6 @@ function teacher_stamp_reset_auth_app_secret(int $teacherUserId): ?array {
   return teacher_stamp_auth_app_setup_payload($teacherUserId);
 }
 
-function teacher_stamp_generate_temp_code(): string {
-  return str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-}
-
-function teacher_stamp_issue_temp_code(int $teacherUserId, ?int $createdByUserId = null, int $minutes = TEACHER_STAMP_TEMP_CODE_MINUTES): array {
-  teacher_stamp_ensure_schema();
-
-  $code = teacher_stamp_generate_temp_code();
-  $expiresAt = date('Y-m-d H:i:s', time() + ($minutes * 60));
-
-  $clear = db()->prepare("
-    UPDATE teacher_stamp_temp_codes
-    SET used_at = COALESCE(used_at, NOW())
-    WHERE teacher_user_id = ?
-      AND used_at IS NULL
-      AND expires_at >= NOW()
-  ");
-  $clear->execute([$teacherUserId]);
-
-  $insert = db()->prepare("
-    INSERT INTO teacher_stamp_temp_codes(teacher_user_id, code_value, expires_at, used_at, created_by_user_id)
-    VALUES(?, ?, ?, NULL, ?)
-  ");
-  $insert->execute([$teacherUserId, $code, $expiresAt, $createdByUserId]);
-
-  return [
-    'code_value' => $code,
-    'expires_at' => $expiresAt,
-    'expires_in_seconds' => max(0, strtotime($expiresAt) - time()),
-  ];
-}
-
-function teacher_stamp_active_temp_code(int $teacherUserId): ?array {
-  teacher_stamp_ensure_schema();
-
-  $stmt = db()->prepare("
-    SELECT code_value, expires_at
-    FROM teacher_stamp_temp_codes
-    WHERE teacher_user_id = ?
-      AND used_at IS NULL
-      AND expires_at >= NOW()
-    ORDER BY id DESC
-    LIMIT 1
-  ");
-  $stmt->execute([$teacherUserId]);
-  $row = $stmt->fetch();
-  if (!$row) {
-    return null;
-  }
-
-  return [
-    'code_value' => $row['code_value'],
-    'expires_at' => $row['expires_at'],
-    'expires_in_seconds' => max(0, strtotime((string)$row['expires_at']) - time()),
-  ];
-}
-
-function teacher_stamp_temp_code_valid(int $teacherUserId, string $code): bool {
-  teacher_stamp_ensure_schema();
-  $cleanCode = preg_replace('/\D+/', '', $code) ?? '';
-  if (strlen($cleanCode) !== 6) {
-    return false;
-  }
-
-  $stmt = db()->prepare("
-    SELECT id
-    FROM teacher_stamp_temp_codes
-    WHERE teacher_user_id = ?
-      AND code_value = ?
-      AND used_at IS NULL
-      AND expires_at >= NOW()
-    ORDER BY id DESC
-    LIMIT 1
-  ");
-  $stmt->execute([$teacherUserId, $cleanCode]);
-  return (bool)$stmt->fetch();
-}
-
-function teacher_stamp_consume_temp_code(int $teacherUserId, string $code): void {
-  teacher_stamp_ensure_schema();
-  $cleanCode = preg_replace('/\D+/', '', $code) ?? '';
-  if (strlen($cleanCode) !== 6) {
-    return;
-  }
-
-  $stmt = db()->prepare("
-    UPDATE teacher_stamp_temp_codes
-    SET used_at = NOW()
-    WHERE teacher_user_id = ?
-      AND code_value = ?
-      AND used_at IS NULL
-      AND expires_at >= NOW()
-  ");
-  $stmt->execute([$teacherUserId, $cleanCode]);
-}
-
 function teacher_stamp_find_teacher_by_code(string $stampCode): ?array {
   teacher_stamp_ensure_schema();
 
@@ -475,20 +363,17 @@ function teacher_stamp_codes_payload(): array {
   $payload = [];
   foreach ($rows as $row) {
     $status = teacher_stamp_today_status((int)$row['teacher_user_id']);
-    $tempCode = teacher_stamp_active_temp_code((int)$row['teacher_user_id']);
     $payload[] = [
       'teacher_user_id' => (int)$row['teacher_user_id'],
       'full_name' => $row['full_name'],
       'email' => $row['email'],
       'phone' => $row['phone'],
       'stamp_code' => $row['stamp_code'],
+      'current_otp' => teacher_stamp_current_otp((string)$row['stamp_secret']),
+      'expires_in' => TEACHER_STAMP_OTP_INTERVAL - (time() % TEACHER_STAMP_OTP_INTERVAL),
       'arrived_at' => $status['arrived_at'],
       'departed_at' => $status['departed_at'],
       'is_in' => $status['is_in'],
-      'auth_app_enabled' => trim((string)($row['auth_app_secret'] ?? '')) !== '',
-      'temp_code' => $tempCode['code_value'] ?? null,
-      'temp_code_expires_at' => $tempCode['expires_at'] ?? null,
-      'temp_code_expires_in' => $tempCode['expires_in_seconds'] ?? null,
     ];
   }
 
