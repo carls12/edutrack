@@ -19,6 +19,7 @@ db()->exec("
 $d = json_input();
 $subject1 = (int)($d['subject_id_1'] ?? 0);
 $subject2 = (int)($d['subject_id_2'] ?? 0);
+$classId = isset($d['class_id']) && (int)$d['class_id'] > 0 ? (int)$d['class_id'] : null;
 $active = (int)($d['is_active'] ?? 1) === 1 ? 1 : 0;
 
 if ($subject1 <= 0 || $subject2 <= 0 || $subject1 === $subject2) fail('Choose two different subjects.');
@@ -26,10 +27,10 @@ if ($subject1 > $subject2) {
   [$subject1, $subject2] = [$subject2, $subject1];
 }
 
-$stmt = db()->prepare("INSERT INTO subject_pairs(subject_id_1, subject_id_2, is_active) VALUES(?,?,?)");
+$stmt = db()->prepare("INSERT INTO subject_pairs(subject_id_1, subject_id_2, class_id, is_active) VALUES(?,?,?,?)");
 try {
-  $stmt->execute([$subject1, $subject2, $active]);
+  $stmt->execute([$subject1, $subject2, $classId, $active]);
   ok(['id' => (int)db()->lastInsertId()]);
 } catch (Throwable $e) {
-  fail('Subject pair already exists.');
+  fail('Subject pair already exists for this class.');
 }

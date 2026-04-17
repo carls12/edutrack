@@ -1,26 +1,38 @@
 <?php
 require_role(['admin']);
 $rows = db()->query("SELECT id, code, name, is_active FROM subjects ORDER BY code")->fetchAll();
+$classes = db()->query("SELECT id, name FROM classes ORDER BY name")->fetchAll();
 db()->exec("
   CREATE TABLE IF NOT EXISTS subject_pairs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     subject_id_1 INT NOT NULL,
     subject_id_2 INT NOT NULL,
+    class_id INT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uniq_subject_pair (subject_id_1, subject_id_2),
+    UNIQUE KEY uniq_subject_pair (class_id, subject_id_1, subject_id_2),
     FOREIGN KEY (subject_id_1) REFERENCES subjects(id) ON DELETE CASCADE,
-    FOREIGN KEY (subject_id_2) REFERENCES subjects(id) ON DELETE CASCADE
+    FOREIGN KEY (subject_id_2) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
   )
 ");
+$hasClassCol = (int)db()->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='subject_pairs' AND COLUMN_NAME='class_id'")->fetchColumn();
+if (!$hasClassCol) {
+  db()->exec("ALTER TABLE subject_pairs ADD COLUMN class_id INT NULL");
+  try { db()->exec("ALTER TABLE subject_pairs DROP INDEX uniq_subject_pair"); } catch(Throwable $e){}
+  try { db()->exec("ALTER TABLE subject_pairs ADD UNIQUE KEY uniq_subject_pair (class_id, subject_id_1, subject_id_2)"); } catch(Throwable $e){}
+  try { db()->exec("ALTER TABLE subject_pairs ADD CONSTRAINT fk_sp_class FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE"); } catch(Throwable $e){}
+}
 $subjectPairs = db()->query("
-  SELECT sp.id, sp.subject_id_1, sp.subject_id_2, sp.is_active,
+  SELECT sp.id, sp.subject_id_1, sp.subject_id_2, sp.class_id, sp.is_active,
          s1.code AS code_1, s1.name AS name_1,
-         s2.code AS code_2, s2.name AS name_2
+         s2.code AS code_2, s2.name AS name_2,
+         c.name AS class_name
   FROM subject_pairs sp
   JOIN subjects s1 ON s1.id = sp.subject_id_1
   JOIN subjects s2 ON s2.id = sp.subject_id_2
-  ORDER BY s1.code, s2.code
+  LEFT JOIN classes c ON c.id = sp.class_id
+  ORDER BY c.name, s1.code, s2.code
 ")->fetchAll();
 ?>
 <div class="card card-soft">
@@ -77,11 +89,12 @@ $subjectPairs = db()->query("
     <div class="table-responsive mt-3">
       <table class="table table-dark table-hover align-middle">
         <thead class="text-muted">
-          <tr><th>Subject 1</th><th>Subject 2</th><th>Status</th><th class="text-end">Action</th></tr>
+          <tr><th>Class</th><th>Subject 1</th><th>Subject 2</th><th>Status</th><th class="text-end">Action</th></tr>
         </thead>
         <tbody>
           <?php foreach ($subjectPairs as $pair): ?>
           <tr>
+            <td><?= $pair['class_name'] ? '<span class="badge text-bg-secondary">'.htmlspecialchars($pair['class_name']).'</span>' : '<span class="text-muted small">All classes</span>' ?></td>
             <td class="fw-semibold"><?= htmlspecialchars($pair['code_1']) ?> - <?= htmlspecialchars($pair['name_1']) ?></td>
             <td><?= htmlspecialchars($pair['code_2']) ?> - <?= htmlspecialchars($pair['name_2']) ?></td>
             <td><?= ((int)$pair['is_active'] === 1) ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-danger">Disabled</span>' ?></td>
@@ -90,6 +103,7 @@ $subjectPairs = db()->query("
                 data-id="<?= (int)$pair['id'] ?>"
                 data-subject_id_1="<?= (int)$pair['subject_id_1'] ?>"
                 data-subject_id_2="<?= (int)$pair['subject_id_2'] ?>"
+                data-class_id="<?= (int)$pair['class_id'] ?>"
                 data-is_active="<?= (int)$pair['is_active'] ?>">
                 <i class="bi bi-pencil me-1"></i>Edit
               </button>
@@ -99,7 +113,7 @@ $subjectPairs = db()->query("
             </td>
           </tr>
           <?php endforeach; ?>
-          <?php if (!$subjectPairs): ?><tr><td colspan="4" class="text-muted">No subject pairs configured yet.</td></tr><?php endif; ?>
+          <?php if (!$subjectPairs): ?><tr><td colspan="5" class="text-muted">No subject pairs configured yet.</td></tr><?php endif; ?>
         </tbody>
       </table>
     </div>
@@ -194,6 +208,15 @@ document.getElementById('modalSubjectEdit')?.addEventListener('show.bs.modal', (
       </div>
       <form class="modal-body" data-api="<?= BASE_URL ?>/app/api/subject_pair_create.php">
         <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Class</label>
+            <select class="form-select" name="class_id" required>
+              <option value="">Select class</option>
+              <?php foreach ($classes as $cls): ?>
+                <option value="<?= (int)$cls['id'] ?>"><?= htmlspecialchars($cls['name']) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="col-md-6">
             <label class="form-label">Subject 1</label>
             <select class="form-select" name="subject_id_1" required>
@@ -239,6 +262,15 @@ document.getElementById('modalSubjectEdit')?.addEventListener('show.bs.modal', (
       <form class="modal-body" data-api="<?= BASE_URL ?>/app/api/subject_pair_update.php">
         <input type="hidden" name="id" id="spId">
         <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Class</label>
+            <select class="form-select" name="class_id" id="spClassId" required>
+              <option value="">Select class</option>
+              <?php foreach ($classes as $cls): ?>
+                <option value="<?= (int)$cls['id'] ?>"><?= htmlspecialchars($cls['name']) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="col-md-6">
             <label class="form-label">Subject 1</label>
             <select class="form-select" name="subject_id_1" id="spSubject1" required>
@@ -278,6 +310,7 @@ document.getElementById('modalSubjectEdit')?.addEventListener('show.bs.modal', (
 document.getElementById('modalSubjectPairEdit')?.addEventListener('show.bs.modal', (e)=>{
   const b = e.relatedTarget;
   document.getElementById('spId').value = b.dataset.id;
+  document.getElementById('spClassId').value = b.dataset.class_id;
   document.getElementById('spSubject1').value = b.dataset.subject_id_1;
   document.getElementById('spSubject2').value = b.dataset.subject_id_2;
   document.getElementById('spActive').value = b.dataset.is_active;
