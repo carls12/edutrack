@@ -251,16 +251,9 @@ foreach ($slotAvailabilityRows as $row) {
           </div>
         </div>
 
-        <div class="table-responsive">
-          <table class="table table-dark table-hover align-middle" id="assignEditTable">
-            <thead class="text-muted">
-              <tr><th>Subject</th><th>Class</th><th>Hours/Week</th><th class="text-end">Remove</th></tr>
-            </thead>
-            <tbody id="assignEditBody"></tbody>
-          </table>
-        </div>
+        <div id="assignGroups"></div>
 
-        <button class="btn btn-soft" type="button" id="btnAddAssignRow"><i class="bi bi-plus-lg me-1"></i>Add Row</button>
+        <button class="btn btn-soft" type="button" id="btnAddSubjectGroup"><i class="bi bi-plus-lg me-1"></i>Add Subject</button>
 
         <div class="modal-footer px-0 pb-0">
           <button class="btn btn-soft" type="button" data-bs-dismiss="modal">Cancel</button>
@@ -294,20 +287,54 @@ function optionHtml(options, selectedId){
   return options.map(o => `<option value="${o.id}" ${String(o.id)===String(selectedId) ? 'selected' : ''}>${o.label}</option>`).join('');
 }
 
-function buildAssignRow(item = {subject_id:'', class_id:'', hours_per_week:2}){
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td><select class="form-select" data-field="subject_id" required>
-      <option value="">Select subject</option>${optionHtml(subjectOptions, item.subject_id)}
-    </select></td>
-    <td><select class="form-select" data-field="class_id" required>
-      <option value="">Select class</option>${optionHtml(classOptions, item.class_id)}
-    </select></td>
-    <td><input class="form-control" type="number" min="1" data-field="hours_per_week" value="${item.hours_per_week || 2}" required></td>
-    <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-remove-row="1">Remove</button></td>
-  `;
-  tr.querySelector('[data-remove-row]')?.addEventListener('click', ()=> tr.remove());
-  return tr;
+function buildSubjectGroup(subjectId, classAssignments){
+  subjectId = subjectId || '';
+  classAssignments = Array.isArray(classAssignments) ? classAssignments : [];
+  const assignedMap = {};
+  classAssignments.forEach(a => { assignedMap[String(a.class_id)] = a.hours_per_week || 2; });
+
+  const uid = Math.random().toString(36).slice(2);
+  const classRows = classOptions.map(cls => {
+    const isChecked = Object.prototype.hasOwnProperty.call(assignedMap, String(cls.id));
+    const hours = isChecked ? assignedMap[String(cls.id)] : 2;
+    return `<div class="col-xl-3 col-md-4 col-sm-6 col-12">
+      <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:rgba(255,255,255,0.06)">
+        <div class="form-check mb-0 flex-grow-1 overflow-hidden">
+          <input class="form-check-input class-cb" type="checkbox"
+            data-class-id="${cls.id}" id="cb_${uid}_${cls.id}" ${isChecked ? 'checked' : ''}>
+          <label class="form-check-label text-truncate d-block" for="cb_${uid}_${cls.id}">${cls.label}</label>
+        </div>
+        <input class="form-control form-control-sm hours-inp" type="number" min="1" max="99"
+          data-hours-for="${cls.id}" value="${hours}" placeholder="hrs"
+          style="width:60px;${isChecked ? '' : 'display:none'}" title="Hours per week">
+      </div>
+    </div>`;
+  }).join('');
+
+  const group = document.createElement('div');
+  group.className = 'assign-group card card-soft mb-3';
+  group.innerHTML = `<div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <div class="fw-semibold text-muted small me-1">Subject</div>
+      <select class="form-select" data-field="subject_id" style="max-width:300px" required>
+        <option value="">Select subject…</option>${optionHtml(subjectOptions, subjectId)}
+      </select>
+      <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-remove-group>
+        <i class="bi bi-trash"></i>
+      </button>
+    </div>
+    <div class="text-muted small mb-2">Tick each class this teacher teaches for the selected subject, then set hours/week.</div>
+    <div class="row g-2">${classRows}</div>
+  </div>`;
+
+  group.querySelector('[data-remove-group]').addEventListener('click', () => group.remove());
+  group.querySelectorAll('.class-cb').forEach(cb => {
+    const hoursInp = group.querySelector(`[data-hours-for="${cb.dataset.classId}"]`);
+    cb.addEventListener('change', () => {
+      if (hoursInp) hoursInp.style.display = cb.checked ? '' : 'none';
+    });
+  });
+  return group;
 }
 
 function setAvailabilitySlots(slots){
@@ -331,31 +358,48 @@ if (canManageTeachers) {
     document.getElementById('asTeacherId').value = b.dataset.user_id;
     document.getElementById('asTeacherName').textContent = b.dataset.full_name;
 
-    const body = document.getElementById('assignEditBody');
-    body.innerHTML = '';
+    const container = document.getElementById('assignGroups');
+    container.innerHTML = '';
     let rows = [];
     try { rows = JSON.parse(b.dataset.assignments || '[]'); } catch(_) { rows = []; }
     let availabilitySlots = {};
     try { availabilitySlots = JSON.parse(b.dataset.availability_slots || '{}'); } catch(_) { availabilitySlots = {}; }
     setAvailabilitySlots(availabilitySlots);
-    if (!Array.isArray(rows) || rows.length === 0) rows = [{subject_id:'', class_id:'', hours_per_week:2}];
-    rows.forEach(r => body.appendChild(buildAssignRow(r)));
+
+    // Group assignments by subject_id
+    const subjectMap = {};
+    rows.forEach(r => {
+      const sid = String(r.subject_id);
+      if (!subjectMap[sid]) subjectMap[sid] = [];
+      subjectMap[sid].push({ class_id: r.class_id, hours_per_week: r.hours_per_week });
+    });
+    const keys = Object.keys(subjectMap);
+    if (keys.length === 0) {
+      container.appendChild(buildSubjectGroup());
+    } else {
+      keys.forEach(sid => container.appendChild(buildSubjectGroup(Number(sid), subjectMap[sid])));
+    }
   });
 
-  document.getElementById('btnAddAssignRow')?.addEventListener('click', ()=>{
-    document.getElementById('assignEditBody')?.appendChild(buildAssignRow());
+  document.getElementById('btnAddSubjectGroup')?.addEventListener('click', ()=>{
+    document.getElementById('assignGroups')?.appendChild(buildSubjectGroup());
   });
 
   document.getElementById('teacherAssignForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const teacherId = Number(document.getElementById('asTeacherId').value || 0);
-    const rows = [...document.querySelectorAll('#assignEditBody tr')];
     const availabilitySlots = [...document.querySelectorAll('[data-availability-slot]:checked')].map((el) => String(el.dataset.availabilitySlot || ''));
-    const assignments = rows.map(tr => ({
-      subject_id: Number(tr.querySelector('[data-field="subject_id"]').value || 0),
-      class_id: Number(tr.querySelector('[data-field="class_id"]').value || 0),
-      hours_per_week: Number(tr.querySelector('[data-field="hours_per_week"]').value || 0),
-    })).filter(x => x.subject_id > 0 && x.class_id > 0 && x.hours_per_week > 0);
+    const assignments = [];
+    document.querySelectorAll('.assign-group').forEach(group => {
+      const subjectId = Number(group.querySelector('[data-field="subject_id"]').value || 0);
+      if (subjectId <= 0) return;
+      group.querySelectorAll('.class-cb:checked').forEach(cb => {
+        const classId = Number(cb.dataset.classId || 0);
+        const hoursInp = group.querySelector(`[data-hours-for="${classId}"]`);
+        const hours = Number(hoursInp?.value || 0);
+        if (classId > 0 && hours > 0) assignments.push({ subject_id: subjectId, class_id: classId, hours_per_week: hours });
+      });
+    });
 
     try{
       await api("<?= BASE_URL ?>/app/api/teacher_assignments_bulk_save.php", {

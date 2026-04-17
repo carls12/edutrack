@@ -70,37 +70,47 @@ $rows = db()->query("
         <h5 class="modal-title fw-bold">Add Assignment</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form class="modal-body" data-api="<?= BASE_URL ?>/app/api/assignment_create.php">
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Class</label>
-            <select class="form-select" name="class_id" required>
-              <?php foreach($classes as $c): ?>
-                <option value="<?= (int)$c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Subject</label>
-            <select class="form-select" name="subject_id" required>
-              <?php foreach($subjects as $s): ?>
-                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
+      <form class="modal-body" id="formAssignCreate">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
             <label class="form-label">Teacher</label>
-            <select class="form-select" name="teacher_user_id" required>
+            <select class="form-select" id="acTeacher" required>
+              <option value="">Select teacher…</option>
               <?php foreach($teachers as $t): ?>
                 <option value="<?= (int)$t['id'] ?>"><?= htmlspecialchars($t['full_name']) ?></option>
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Hours per week</label>
-            <input class="form-control" type="number" name="hours_per_week" min="1" value="2" required>
+          <div class="col-md-6">
+            <label class="form-label">Subject</label>
+            <select class="form-select" id="acSubject" required>
+              <option value="">Select subject…</option>
+              <?php foreach($subjects as $s): ?>
+                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
         </div>
+
+        <div class="fw-semibold mb-1">Classes</div>
+        <div class="text-muted small mb-2">Tick each class, then set the hours per week for that class.</div>
+        <div class="row g-2" id="acClassList">
+          <?php foreach($classes as $c): ?>
+          <div class="col-md-4 col-sm-6 col-12">
+            <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:rgba(255,255,255,0.06)">
+              <div class="form-check mb-0 flex-grow-1">
+                <input class="form-check-input ac-class-cb" type="checkbox"
+                  data-class-id="<?= (int)$c['id'] ?>" id="ac_cls_<?= (int)$c['id'] ?>">
+                <label class="form-check-label" for="ac_cls_<?= (int)$c['id'] ?>"><?= htmlspecialchars($c['name']) ?></label>
+              </div>
+              <input class="form-control form-control-sm ac-hours" type="number" min="1" max="99"
+                data-hours-for="<?= (int)$c['id'] ?>" value="2" placeholder="hrs"
+                style="width:60px;display:none" title="Hours per week">
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+
         <div class="modal-footer px-0 pb-0">
           <button class="btn btn-soft" type="button" data-bs-dismiss="modal">Cancel</button>
           <button class="btn btn-primary" type="submit">Create</button>
@@ -159,7 +169,56 @@ $rows = db()->query("
 </div>
 
 <script>
-document.getElementById('modalAssignEdit')?.addEventListener('show.bs.modal', (e)=>{
+// Reset create modal when opened
+document.getElementById('modalAssignCreate')?.addEventListener('show.bs.modal', () => {
+  document.getElementById('acTeacher').value = '';
+  document.getElementById('acSubject').value = '';
+  document.querySelectorAll('.ac-class-cb').forEach(cb => {
+    cb.checked = false;
+    const inp = document.querySelector(`[data-hours-for="${cb.dataset.classId}"]`);
+    if (inp) { inp.style.display = 'none'; inp.value = 2; }
+  });
+});
+
+// Show/hide hours input when class checkbox toggled
+document.getElementById('acClassList')?.addEventListener('change', (e) => {
+  if (!e.target.classList.contains('ac-class-cb')) return;
+  const classId = e.target.dataset.classId;
+  const inp = document.querySelector(`[data-hours-for="${classId}"]`);
+  if (inp) inp.style.display = e.target.checked ? '' : 'none';
+});
+
+// Submit: create one assignment per ticked class
+document.getElementById('formAssignCreate')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const teacherId = document.getElementById('acTeacher').value;
+  const subjectId = document.getElementById('acSubject').value;
+  if (!teacherId || !subjectId) { toast('Select a teacher and subject.', 'error'); return; }
+
+  const checked = [...document.querySelectorAll('.ac-class-cb:checked')];
+  if (checked.length === 0) { toast('Tick at least one class.', 'error'); return; }
+
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true;
+  let errors = 0;
+  for (const cb of checked) {
+    const classId = cb.dataset.classId;
+    const hours = document.querySelector(`[data-hours-for="${classId}"]`)?.value || 2;
+    try {
+      await api("<?= BASE_URL ?>/app/api/assignment_create.php", {
+        method: 'POST',
+        body: JSON.stringify({ teacher_user_id: Number(teacherId), subject_id: Number(subjectId), class_id: Number(classId), hours_per_week: Number(hours) })
+      });
+    } catch(_) { errors++; }
+  }
+  btn.disabled = false;
+  if (errors) toast(`${errors} assignment(s) failed (may already exist).`, 'error');
+  else toast('Assignments created.', 'success');
+  window.location.reload();
+});
+
+// Edit modal prefill
+document.getElementById('modalAssignEdit')?.addEventListener('show.bs.modal', (e) => {
   const b = e.relatedTarget;
   document.getElementById('aId').value = b.dataset.id;
   document.getElementById('aClass').value = b.dataset.class_id;
