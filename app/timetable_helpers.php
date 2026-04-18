@@ -130,9 +130,25 @@ function timetable_fetch_class_rows(int $classId): array {
 }
 
 function timetable_fetch_class_entry_map(int $classId): array {
-  $entries = [];
+  $raw = [];
   foreach (timetable_fetch_class_rows($classId) as $row) {
-    $entries[$row['day_of_week'] . '-' . $row['period_id']] = $row;
+    $key = $row['day_of_week'] . '-' . $row['period_id'];
+    $raw[$key][] = $row;
+  }
+
+  $entries = [];
+  foreach ($raw as $key => $rows) {
+    if (count($rows) === 1) {
+      $entries[$key] = $rows[0];
+    } else {
+      // Paired slot: merge subject codes and teacher names for display
+      $first = $rows[0];
+      $first['subject_code'] = implode(' / ', array_column($rows, 'subject_code'));
+      $first['subject_name'] = implode(' / ', array_column($rows, 'subject_name'));
+      $first['teacher_name'] = implode(' / ', array_column($rows, 'teacher_name'));
+      $first['is_paired']    = true;
+      $entries[$key] = $first;
+    }
   }
   return $entries;
 }

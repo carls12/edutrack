@@ -142,6 +142,10 @@ $entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
                         data-locked="<?= (int)($e['is_locked'] ?? 0) ?>">
                         <?php if (!$e): ?>
                           <span class="text-muted small">Assign</span>
+                        <?php elseif (!empty($e['is_paired'])): ?>
+                          <span class="badge text-bg-info mb-1" style="font-size:.65rem;">Parallel</span>
+                          <div class="fw-semibold" style="font-size:.8rem;"><?= htmlspecialchars($e['subject_code']) ?></div>
+                          <div class="text-muted small" style="font-size:.72rem;"><?= htmlspecialchars($e['teacher_name']) ?></div>
                         <?php else: ?>
                           <div class="fw-semibold"><?= htmlspecialchars($e['subject_code']) ?></div>
                           <div class="text-muted small"><?= htmlspecialchars($e['teacher_name']) ?></div>
@@ -152,6 +156,10 @@ $entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
                       </button>
                     <?php elseif (!$e): ?>
                       <span class="text-muted small">-</span>
+                    <?php elseif (!empty($e['is_paired'])): ?>
+                      <span class="badge text-bg-info mb-1" style="font-size:.65rem;">Parallel</span>
+                      <div class="fw-semibold" style="font-size:.8rem;"><?= htmlspecialchars($e['subject_code']) ?></div>
+                      <div class="text-muted small" style="font-size:.72rem;"><?= htmlspecialchars($e['teacher_name']) ?></div>
                     <?php else: ?>
                       <div class="fw-semibold"><?= htmlspecialchars($e['subject_code']) ?></div>
                       <div class="text-muted small"><?= htmlspecialchars($e['teacher_name']) ?></div>
@@ -176,7 +184,7 @@ $entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
 
       <?php if ($role === 'admin'): ?>
         <div class="alert alert-secondary mt-3 mb-0">
-          Auto-generate uses: teacher availability (days), assignments (teacher + subject + class + hours/week), and period rules.
+          Auto-generate rules: teacher availability · hours/week per assignment · max 1 lesson per subject per day · even spread across weekdays · paired subjects share the same slot (shown as <span class="badge text-bg-info" style="font-size:.7rem;">Parallel</span>).
         </div>
       <?php endif; ?>
     <?php endif; ?>
