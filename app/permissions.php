@@ -19,6 +19,7 @@ const PAGE_ROLES = [
   'admin_teachers' => ['admin','principal'],
   'teacher_stamps' => ['admin','principal'],
   'admin_classes' => ['admin'],
+  'prefect_passwords' => ['admin'],
   'admin_subjects' => ['admin'],
   'admin_assignments' => ['admin'],
   'admin_availability' => ['admin'],

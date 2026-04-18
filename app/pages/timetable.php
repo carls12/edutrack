@@ -147,6 +147,9 @@ $entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
                           <div class="fw-semibold" style="font-size:.8rem;"><?= htmlspecialchars($e['subject_code']) ?></div>
                           <div class="text-muted small" style="font-size:.72rem;"><?= htmlspecialchars($e['teacher_name']) ?></div>
                         <?php else: ?>
+                          <?php if (!empty($e['is_practical'])): ?>
+                            <span class="badge text-bg-info mb-1" style="font-size:.65rem;">Lab</span>
+                          <?php endif; ?>
                           <div class="fw-semibold"><?= htmlspecialchars($e['subject_code']) ?></div>
                           <div class="text-muted small"><?= htmlspecialchars($e['teacher_name']) ?></div>
                           <?php if ((int)($e['is_locked'] ?? 0) === 1): ?>
@@ -161,6 +164,9 @@ $entries = $classId ? timetable_fetch_class_entry_map($classId) : [];
                       <div class="fw-semibold" style="font-size:.8rem;"><?= htmlspecialchars($e['subject_code']) ?></div>
                       <div class="text-muted small" style="font-size:.72rem;"><?= htmlspecialchars($e['teacher_name']) ?></div>
                     <?php else: ?>
+                      <?php if (!empty($e['is_practical'])): ?>
+                        <span class="badge text-bg-info mb-1" style="font-size:.65rem;">Lab</span>
+                      <?php endif; ?>
                       <div class="fw-semibold"><?= htmlspecialchars($e['subject_code']) ?></div>
                       <div class="text-muted small"><?= htmlspecialchars($e['teacher_name']) ?></div>
                     <?php endif; ?>

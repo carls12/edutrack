@@ -1,13 +1,20 @@
 <?php
 require_role(['admin']);
+try { db()->exec("ALTER TABLE subjects ADD COLUMN is_practical TINYINT(1) NOT NULL DEFAULT 0"); } catch(Throwable $e){}
+try { db()->exec("ALTER TABLE subjects ADD COLUMN parent_subject_id INT NULL"); } catch(Throwable $e){}
 $teachers = db()->query("SELECT id, full_name FROM users WHERE role='teacher' ORDER BY full_name")->fetchAll();
-$subjects = db()->query("SELECT id, code, name FROM subjects WHERE is_active=1 ORDER BY code")->fetchAll();
+$subjects = db()->query("
+    SELECT s.id, s.code, s.name, s.is_practical
+    FROM subjects s
+    WHERE s.is_active=1
+    ORDER BY COALESCE((SELECT p.code FROM subjects p WHERE p.id=s.parent_subject_id), s.code), s.is_practical, s.code
+")->fetchAll();
 $classes  = db()->query("SELECT id, name FROM classes ORDER BY name")->fetchAll();
 
 $rows = db()->query("
-  SELECT a.id, a.hours_per_week, 
+  SELECT a.id, a.hours_per_week,
          u.full_name teacher_name, u.id teacher_id,
-         s.code subject_code, s.name subject_name, s.id subject_id,
+         s.code subject_code, s.name subject_name, s.id subject_id, s.is_practical,
          c.name class_name, c.id class_id
   FROM teacher_assignments a
   JOIN users u ON u.id=a.teacher_user_id
@@ -35,7 +42,10 @@ $rows = db()->query("
           <?php foreach ($rows as $r): ?>
           <tr>
             <td class="fw-semibold"><?= htmlspecialchars($r['class_name']) ?></td>
-            <td><?= htmlspecialchars($r['subject_code']) ?> — <span class="text-muted"><?= htmlspecialchars($r['subject_name']) ?></span></td>
+            <td>
+              <?= htmlspecialchars($r['subject_code']) ?> — <span class="text-muted"><?= htmlspecialchars($r['subject_name']) ?></span>
+              <?php if ((int)$r['is_practical']): ?><span class="badge text-bg-info ms-1" style="font-size:.65rem;">Lab</span><?php endif; ?>
+            </td>
             <td><?= htmlspecialchars($r['teacher_name']) ?></td>
             <td><span class="badge text-bg-secondary"><?= (int)$r['hours_per_week'] ?></span></td>
             <td class="text-end">
@@ -86,7 +96,7 @@ $rows = db()->query("
             <select class="form-select" id="acSubject" required>
               <option value="">Select subject…</option>
               <?php foreach($subjects as $s): ?>
-                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?></option>
+                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?><?= $s['is_practical'] ? ' [Lab]' : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
@@ -142,7 +152,7 @@ $rows = db()->query("
             <label class="form-label">Subject</label>
             <select class="form-select" name="subject_id" id="aSubject" required>
               <?php foreach($subjects as $s): ?>
-                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?></option>
+                <option value="<?= (int)$s['id'] ?>"><?= htmlspecialchars($s['code']) ?> — <?= htmlspecialchars($s['name']) ?><?= $s['is_practical'] ? ' [Lab]' : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>

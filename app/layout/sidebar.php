@@ -14,6 +14,7 @@ $menus = [
     ['Admin Subjects','admin_subjects','bi-journals'],
     ['Admin Assignments','admin_assignments','bi-link-45deg'],
     ['Admin Availability','admin_availability','bi-calendar2-check'],
+    ['Prefect Passwords','prefect_passwords','bi-shield-lock'],
     ['Attendance','attendance','bi-check2-square'],
     ['Attendance Mgmt','attendance_management','bi-clipboard2-check'],
     ['Timetable','timetable','bi-calendar3-week'],

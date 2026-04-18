@@ -1,7 +1,35 @@
 <?php
 require_role(['admin']);
-$rows = db()->query("SELECT id, code, name, is_active FROM subjects ORDER BY code")->fetchAll();
+
+// Schema migrations
+try { db()->exec("ALTER TABLE subjects ADD COLUMN is_practical TINYINT(1) NOT NULL DEFAULT 0"); } catch(Throwable $e){}
+try { db()->exec("ALTER TABLE subjects ADD COLUMN parent_subject_id INT NULL"); } catch(Throwable $e){}
+try { db()->exec("ALTER TABLE subjects ADD CONSTRAINT fk_subj_parent FOREIGN KEY (parent_subject_id) REFERENCES subjects(id) ON DELETE SET NULL"); } catch(Throwable $e){}
+
+// Fetch: parents first, then their practicals grouped under them
+$rows = db()->query("
+    SELECT s.id, s.code, s.name, s.is_active, s.is_practical, s.parent_subject_id,
+           p.name AS parent_name, p.code AS parent_code,
+           (SELECT COUNT(*) FROM subjects ch WHERE ch.parent_subject_id = s.id AND ch.is_practical=1) AS practical_count
+    FROM subjects s
+    LEFT JOIN subjects p ON p.id = s.parent_subject_id
+    ORDER BY COALESCE(p.code, s.code), s.is_practical, s.code
+")->fetchAll();
+
 $classes = db()->query("SELECT id, name FROM classes ORDER BY name")->fetchAll();
+
+// For practical modal: teacher assignments map [subject_id][class_id] => [teacher_ids]
+$assignmentMap = [];
+foreach (db()->query("
+    SELECT a.subject_id, a.class_id, a.teacher_user_id, u.full_name
+    FROM teacher_assignments a
+    JOIN users u ON u.id = a.teacher_user_id
+")->fetchAll() as $a) {
+    $assignmentMap[(int)$a['subject_id']][(int)$a['class_id']][] = [
+        'id'   => (int)$a['teacher_user_id'],
+        'name' => $a['full_name'],
+    ];
+}
 db()->exec("
   CREATE TABLE IF NOT EXISTS subject_pairs (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -51,12 +79,37 @@ $subjectPairs = db()->query("
           <tr><th>Code</th><th>Name</th><th>Status</th><th class="text-end">Action</th></tr>
         </thead>
         <tbody>
-          <?php foreach ($rows as $r): ?>
-          <tr>
-            <td class="fw-semibold"><?= htmlspecialchars($r['code']) ?></td>
-            <td><?= htmlspecialchars($r['name']) ?></td>
+          <?php foreach ($rows as $r):
+            $isPractical = (int)$r['is_practical'] === 1;
+          ?>
+          <tr <?= $isPractical ? 'style="background:rgba(99,102,241,.08)"' : '' ?>>
+            <td class="fw-semibold" <?= $isPractical ? 'style="padding-left:2rem"' : '' ?>>
+              <?php if ($isPractical): ?>
+                <span class="text-muted me-1" style="font-size:.75rem;">└</span>
+              <?php endif; ?>
+              <?= htmlspecialchars($r['code']) ?>
+              <?php if ($isPractical): ?>
+                <span class="badge text-bg-info ms-1" style="font-size:.65rem;">Lab</span>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?= htmlspecialchars($r['name']) ?>
+              <?php if (!$isPractical && (int)$r['practical_count'] > 0): ?>
+                <span class="badge text-bg-secondary ms-2" title="Has practicals">
+                  <i class="bi bi-eyedropper me-1"></i><?= (int)$r['practical_count'] ?> practical<?= (int)$r['practical_count'] > 1 ? 's' : '' ?>
+                </span>
+              <?php endif; ?>
+            </td>
             <td><?= ((int)$r['is_active']===1) ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-danger">Disabled</span>' ?></td>
             <td class="text-end">
+              <?php if (!$isPractical): ?>
+              <button class="btn btn-sm btn-outline-info me-1" data-bs-toggle="modal" data-bs-target="#modalPracticalCreate"
+                data-parent_id="<?= (int)$r['id'] ?>"
+                data-parent_code="<?= htmlspecialchars($r['code'], ENT_QUOTES) ?>"
+                data-parent_name="<?= htmlspecialchars($r['name'], ENT_QUOTES) ?>">
+                <i class="bi bi-eyedropper me-1"></i><?= (int)$r['practical_count'] > 0 ? 'Add Another Practical' : 'Add Practical' ?>
+              </button>
+              <?php endif; ?>
               <button class="btn btn-sm btn-soft" data-bs-toggle="modal" data-bs-target="#modalSubjectEdit"
                 data-id="<?= (int)$r['id'] ?>"
                 data-code="<?= htmlspecialchars($r['code'], ENT_QUOTES) ?>"
@@ -75,6 +128,109 @@ $subjectPairs = db()->query("
     </div>
   </div>
 </div>
+
+<!-- Add Practical Modal -->
+<div class="modal fade" id="modalPracticalCreate" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="bi bi-eyedropper me-2"></i>Add Practical Session</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form class="modal-body" data-api="<?= BASE_URL ?>/app/api/practical_create.php">
+        <input type="hidden" name="parent_subject_id" id="pcParentId">
+        <div class="alert alert-secondary py-2 small mb-3" id="pcParentInfo"></div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Code</label>
+            <input class="form-control" name="code" id="pcCode" required placeholder="BIOP">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" id="pcName" required placeholder="Biology Practical">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Class</label>
+            <select class="form-select" name="class_id" id="pcClass" required>
+              <option value="">Select class…</option>
+              <?php foreach ($classes as $cls): ?>
+                <option value="<?= (int)$cls['id'] ?>"><?= htmlspecialchars($cls['name']) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Teacher</label>
+            <select class="form-select" name="teacher_user_id" id="pcTeacher" required>
+              <option value="">Select a class first…</option>
+            </select>
+            <div class="form-text">Only teachers assigned to this subject in the selected class are shown.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Periods / week</label>
+            <input class="form-control" type="number" name="hours_per_week" min="1" max="20" value="3" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select class="form-select" name="is_active">
+              <option value="1" selected>Active</option>
+              <option value="0">Disabled</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer px-0 pb-0">
+          <button class="btn btn-soft" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-info" type="submit">Create Practical</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const _assignMap = <?= json_encode($assignmentMap, JSON_THROW_ON_ERROR) ?>;
+let _pcParentSubjectId = null;
+
+function pcUpdateTeachers() {
+  const classId   = parseInt(document.getElementById('pcClass').value) || 0;
+  const sel       = document.getElementById('pcTeacher');
+  const prevVal   = sel.value;
+
+  // Remove all existing options except the placeholder
+  [...sel.options].forEach(o => { if (o.value) o.remove(); });
+
+  if (!classId || !_pcParentSubjectId) return;
+
+  const teachers = _assignMap[_pcParentSubjectId]?.[classId] ?? [];
+  if (teachers.length === 0) {
+    const opt = new Option('— No teacher assigned to this subject in this class —', '');
+    opt.disabled = true;
+    sel.add(opt);
+  } else {
+    teachers.forEach(t => {
+      const opt = new Option(t.name, t.id);
+      sel.add(opt);
+    });
+    // Restore previous selection if still valid
+    if ([...sel.options].some(o => o.value == prevVal)) sel.value = prevVal;
+    else if (teachers.length === 1) sel.value = teachers[0].id;
+  }
+}
+
+document.getElementById('modalPracticalCreate')?.addEventListener('show.bs.modal', (e) => {
+  const b = e.relatedTarget;
+  _pcParentSubjectId = parseInt(b.dataset.parent_id);
+  document.getElementById('pcParentId').value = b.dataset.parent_id;
+  document.getElementById('pcCode').value     = b.dataset.parent_code + 'P';
+  document.getElementById('pcName').value     = b.dataset.parent_name + ' Practical';
+  document.getElementById('pcParentInfo').textContent = 'Practical for: ' + b.dataset.parent_code + ' — ' + b.dataset.parent_name;
+  document.getElementById('pcClass').value    = '';
+  // Reset teacher dropdown to placeholder only
+  const sel = document.getElementById('pcTeacher');
+  [...sel.options].forEach(o => { if (o.value) o.remove(); });
+});
+
+document.getElementById('pcClass')?.addEventListener('change', pcUpdateTeachers);
+</script>
 
 <div class="card card-soft mt-3">
   <div class="card-body p-4">

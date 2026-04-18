@@ -114,7 +114,7 @@ function timetable_fetch_class_rows(int $classId): array {
   $stmt = db()->prepare("
     SELECT te.class_id, te.subject_id, te.teacher_user_id, te.day_of_week, te.period_id, te.source, te.is_locked,
            c.name class_name,
-           s.code subject_code, s.name subject_name,
+           s.code subject_code, s.name subject_name, s.is_practical,
            u.full_name teacher_name,
            p.label period_label, p.start_time, p.end_time, p.sort_order
     FROM timetable_entries te

@@ -4,15 +4,11 @@ require_once __DIR__ . '/../school_email.php';
 csrf_check_from_header();
 $me = require_api_role(['admin']);
 
-function generate_password(int $len = 10): string {
-  $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  $special = '!@#$%';
-  $out = '';
-  for ($i = 0; $i < $len - 1; $i++) {
-    $out .= $chars[random_int(0, strlen($chars) - 1)];
-  }
-  $out .= $special[random_int(0, strlen($special) - 1)];
-  return $out;
+function generate_password(string $full_name): string {
+  $words = ['Eagle','Lion','Falcon','Tiger','River','Mount','Forest','Storm','Bright','Swift'];
+  $word  = $words[random_int(0, count($words) - 1)];
+  $digits = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+  return $word . $digits . '!';
 }
 
 $d = json_input();
@@ -28,25 +24,25 @@ if (!$class) fail('Class not found.', 404);
 
 $email = school_email_generate($full);
 
-$plainPassword = generate_password(11);
+$plainPassword = generate_password($full);
 $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+
+db()->exec("
+  CREATE TABLE IF NOT EXISTS prefect_password_audit (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    prefect_user_id INT NOT NULL,
+    class_id INT NOT NULL,
+    email VARCHAR(190) NOT NULL,
+    plain_password VARCHAR(120) NOT NULL,
+    created_by_user_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_prefect_user (prefect_user_id),
+    INDEX idx_class (class_id)
+  )
+");
 
 db()->beginTransaction();
 try {
-  db()->exec("
-    CREATE TABLE IF NOT EXISTS prefect_password_audit (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      prefect_user_id INT NOT NULL,
-      class_id INT NOT NULL,
-      email VARCHAR(190) NOT NULL,
-      plain_password VARCHAR(120) NOT NULL,
-      created_by_user_id INT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_prefect_user (prefect_user_id),
-      INDEX idx_class (class_id)
-    )
-  ");
-
   $ins = db()->prepare("INSERT INTO users(full_name,email,password_hash,role,is_active) VALUES(?,?,?,?,1)");
   $ins->execute([$full, $email, $hash, 'prefect']);
   $userId = (int)db()->lastInsertId();
